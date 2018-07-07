@@ -71,7 +71,6 @@ class BaxterSim(object):
         self.limbs[limb].set_planning_time(time)
         self.limbs[limb].set_num_planning_attempts(attempts)
 
-    def rot_2_orientation(self, )
 
     def go_to_pose(self, limb, x, y, z, roll, pitch, yaw):
 
@@ -93,8 +92,6 @@ class BaxterSim(object):
         self.limbs[limb].stop()
         self.limbs[limb].clear_pose_targets()
 
-        return all_close(pose_goal, current_pose, 0.01)
-
     def go_to_position(self, limb, x, y, z):
 
         self.limbs[limb].set_start_state_to_current_state()
@@ -107,7 +104,15 @@ class BaxterSim(object):
 
     def go_to_orientation(self, limb, roll, pitch, yaw):
 
-        self.
+        quat = tf.transformations.quaternion_from_euler(roll, pitch, yaw)
+
+        self.limbs[limb].set_start_state_to_current_state()
+
+        self.limbs[limb].set_orientation_target(quat)
+        self.limbs[limb].go(wait=True)
+
+        self.limbs[limb].stop()
+        self.limbs[limb].clear_pose_targets()
 
     def add_object(self, timeout = 4):
         self.scene.add_box(self.object_name, self.held_object, size = ())
