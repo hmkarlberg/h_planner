@@ -18,6 +18,28 @@ from std_msgs.msg import String
 from moveit_commander.conversions import pose_to_list
 
 
+def all_close(goal, actual, tolerance):
+  """
+  Convenience method for testing if a list of values are within a tolerance of their counterparts in another list
+  @param: goal       A list of floats, a Pose or a PoseStamped
+  @param: actual     A list of floats, a Pose or a PoseStamped
+  @param: tolerance  A float
+  @returns: bool
+  """
+  all_equal = True
+  if type(goal) is list:
+    for index in range(len(goal)):
+      if abs(actual[index] - goal[index]) > tolerance:
+        return False
+
+  elif type(goal) is geometry_msgs.msg.PoseStamped:
+    return all_close(goal.pose, actual.pose, tolerance)
+
+  elif type(goal) is geometry_msgs.msg.Pose:
+    return all_close(pose_to_list(goal), pose_to_list(actual), tolerance)
+
+  return True
+
 class BaxterSim(object):
 
     def __init__(self):
@@ -53,10 +75,10 @@ class BaxterSim(object):
 
         self.limbs = {'r_hand':self.r_hand, 'r_arm':self.r_arm, 'l_hand':self.l_hand, 'l_arm':self.l_arm}
 
+        print("eef_link: " + self.r_arm.get_end_effector_link())
+        self.eef_link = self.r_arm.get_end_effector_link()
+
         # setting up object and parameters needed
-        self.held_object = held_object()
-        self.held_object.header.frame_id = 'right_arm'
-        self.held_object.pose.orientation.w = 1.0
         self.object_name = 'object'
 
         self.slide = False
@@ -90,11 +112,18 @@ class BaxterSim(object):
         self.limbs[limb].clear_pose_targets()
 
     def go_to_position(self, limb, x, y, z):
+        print("-- debug 1: set start")
 
         self.limbs[limb].set_start_state_to_current_state()
 
+        print("-- debug 2: set target")
+
         self.limbs[limb].set_position_target([x,y,z])
+
+        print("-- debug 3: set target")
+
         self.limbs[limb].go(wait=True)
+
 
         self.limbs[limb].stop()
         self.limbs[limb].clear_pose_targets()
@@ -111,6 +140,76 @@ class BaxterSim(object):
         self.limbs[limb].stop()
         self.limbs[limb].clear_pose_targets()
 
+    def get_pose(self, limb):
+        return self.limbs[limb].get_current_pose()
+
+    def get_position(self, limb):
+        pose_msg = self.limbs[limb].get_current_pose()
+
+        x = pose_msg.pose.position.x
+        y = pose_msg.pose.position.y
+        z = pose_msg.pose.position.z
+
+        pos = [x, y, z]
+        return pos
+
+    def get_orientation(self, limb):
+        pose_msg = self.limbs[limb].get_current_pose()
+
+        x = pose_msg.pose.orientation.x
+        y = pose_msg.pose.orientation.y
+        z = pose_msg.pose.orientation.z
+        w = pose_msg.pose.orientation.w
+
+        quat = [x, y, z, w]
+        return quat
+
+    def add_box(self, timeout=4):
+        # Copy class variables to local variables to make the web tutorials more clear.
+        # In practice, you should use the class variables directly unless you have a good
+        # reason not to.
+        box_name = self.box_name
+        scene = self.scene
+
+        ## BEGIN_SUB_TUTORIAL add_box
+        ##
+        ## Adding Objects to the Planning Scene
+        ## ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        ## First, we will create a box in the planning scene at the location of the left finger:
+        box_pose = geometry_msgs.msg.PoseStamped()
+        box_pose.header.frame_id = "panda_leftfinger"
+        box_pose.pose.orientation.w = 1.0
+        box_name = "box"
+        scene.add_box(box_name, box_pose, size=(0.1, 0.1, 0.1))
+
+        ## END_SUB_TUTORIAL
+        # Copy local variables back to class variables. In practice, you should use the class
+        # variables directly unless you have a good reason not to.
+        self.box_name=box_name
+        return self.wait_for_state_update(box_is_known=True, timeout=timeout)
+
+
+    def attach_box(self, timeout=4):
+        grasping_group = 'gripper'
+        touch_links = self.robot.get_link_names(group=grasping_group)
+        self.scene.attach_box(self.eef_link, self.object_name, touch_links=touch_links)
+        ## END_SUB_TUTORIAL
+
+        # We wait for the planning scene to update.
+        return self.wait_for_state_update(box_is_attached=True, box_is_known=False, timeout=timeout)
+
+    def detach_box(self, timeout=4):
+        self.scene.remove_attached_object(self.eef_link, name=self.box_name)
+        return self.wait_for_state_update(box_is_known=True, box_is_attached=False, timeout=timeout)
+
+    def remove_box(self, timeout=4):
+
+        self.scene.remove_world_object(self.box_name)
+        return self.wait_for_state_update(box_is_attached=False, box_is_known=False, timeout=timeout)
+
+
+
+'''
     def add_object(self, object_size, timeout = 4):
         self.held_object.set_size(object_size)
         self.scene.add_box(self.object_name, self.held_object, size = object_size)
@@ -129,6 +228,8 @@ class BaxterSim(object):
     def remove_box(self, timeout=4):
         self.scene.remove_world_object(box_name)
         return self.wait_for_state_update(box_is_attached=False, box_is_known=False, timeout=timeout)
+'''
+
 
 
 class HeldObject(geometry_msgs.msg.PoseStamped):
@@ -179,11 +280,11 @@ class ContactPoint(object):
 
 class Tracker(object):
 
-    self.updating = False
-    self.positiion = np.zeros(3,1)
-    self.orientation = np.zeros(3,1)
 
     def __init__(self, tracked_object, holder):
+        self.updating = False
+        self.positiion = np.zeros(3,1)
+        self.orientation = np.zeros(3,1)
         self.tracked_object = tracked_object
         self.holder = holder
 
@@ -196,7 +297,7 @@ class Tracker(object):
     def update_object(self):
         self.collision_check()
 
-    def collision_check(self):
+#    def collision_check(self):
 
 class Point(object):
 
@@ -211,33 +312,11 @@ class Point(object):
     def __sub__(self, point):
         return Point(self.x - point.x, self.y - point.y, self.z - point.z,)
 
-# doubt this is needed either...
-
-class BaxterScene(object):
-
-class LimbMover(object):
-
-    def __init__(self):
-
-    def set_planner_params(self):
-
-    def go_to_pose(self):
-
-    def go_to_position(self):
-
-    def go_to_orientation(self):
-
-class ObjectMover(object):
-
-    def __init__(self):
-
-    def go_to_position(self):
-
-    def go_to_orientation(self):
-
-
 
 def main():
+    baxter = BaxterSim()
+    curr_pos = baxter.get_position('r_arm')
+    baxter.go_to_position('r_arm',curr_pos[0] + 0.2, curr_pos[1], curr_pos[2])
 
 if __name__ == '__main__':
     main()
