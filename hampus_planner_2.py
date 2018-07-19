@@ -79,7 +79,8 @@ class BaxterSim(object):
         self.eef_link = self.r_arm.get_end_effector_link()
 
         # setting up object and parameters needed
-        self.object_name = 'object'
+        self.object_name = "object"
+        self.object_size = (0.1, 0.1, 0.1)
 
         self.slide = False
         self.roll = False
@@ -87,7 +88,7 @@ class BaxterSim(object):
 
         self.push = False
 
-    def set_planning_params(self, limb, time = 1, attempts = 1):
+    def set_planning_params(self, limb, time = 10, attempts = 1):
         self.limbs[limb].set_planning_time(time)
         self.limbs[limb].set_num_planning_attempts(attempts)
 
@@ -112,18 +113,24 @@ class BaxterSim(object):
         self.limbs[limb].clear_pose_targets()
 
     def go_to_position(self, limb, x, y, z):
-        print("-- debug 1: set start")
+        print("-- debug: set start")
 
         self.limbs[limb].set_start_state_to_current_state()
 
-        print("-- debug 2: set target")
+        print("-- debug: set target")
 
         self.limbs[limb].set_position_target([x,y,z])
 
-        print("-- debug 3: set target")
+        print("-- debug: plan")
+
+        self.limbs[limb].plan()
+
+        print("-- debug: set target")
 
         self.limbs[limb].go(wait=True)
 
+
+        print("-- debug: stop and clear")
 
         self.limbs[limb].stop()
         self.limbs[limb].clear_pose_targets()
@@ -164,38 +171,21 @@ class BaxterSim(object):
         quat = [x, y, z, w]
         return quat
 
-    def add_box(self, timeout=4):
-        # Copy class variables to local variables to make the web tutorials more clear.
-        # In practice, you should use the class variables directly unless you have a good
-        # reason not to.
-        box_name = self.box_name
-        scene = self.scene
+    def add_box(self, gripper = "right_gripper", timeout=4):
+        object_pose = geometry_msgs.msg.PoseStamped()
+        object_pose.header.frame_id = gripper
+        object_pose.pose.orientation.w = 1.0
 
-        ## BEGIN_SUB_TUTORIAL add_box
-        ##
-        ## Adding Objects to the Planning Scene
-        ## ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-        ## First, we will create a box in the planning scene at the location of the left finger:
-        box_pose = geometry_msgs.msg.PoseStamped()
-        box_pose.header.frame_id = "panda_leftfinger"
-        box_pose.pose.orientation.w = 1.0
-        box_name = "box"
-        scene.add_box(box_name, box_pose, size=(0.1, 0.1, 0.1))
+        self.scene.add_box(self.object_name, object_pose, size = self.object_size)
 
-        ## END_SUB_TUTORIAL
-        # Copy local variables back to class variables. In practice, you should use the class
-        # variables directly unless you have a good reason not to.
-        self.box_name=box_name
         return self.wait_for_state_update(box_is_known=True, timeout=timeout)
 
 
     def attach_box(self, timeout=4):
-        grasping_group = 'gripper'
-        touch_links = self.robot.get_link_names(group=grasping_group)
-        self.scene.attach_box(self.eef_link, self.object_name, touch_links=touch_links)
-        ## END_SUB_TUTORIAL
+        grasping_group = "right_gripper"
+        touch_links = self.robot.get_link_names(group = grasping_group)
+        self.scene.attach_box(self.eef_link, self.object_name, touch_links = touch_links)
 
-        # We wait for the planning scene to update.
         return self.wait_for_state_update(box_is_attached=True, box_is_known=False, timeout=timeout)
 
     def detach_box(self, timeout=4):
@@ -206,6 +196,51 @@ class BaxterSim(object):
 
         self.scene.remove_world_object(self.box_name)
         return self.wait_for_state_update(box_is_attached=False, box_is_known=False, timeout=timeout)
+
+    def wait_for_state_update(self, box_is_known=False, box_is_attached=False, timeout=4):
+        # Copy class variables to local variables to make the web tutorials more clear.
+        # In practice, you should use the class variables directly unless you have a good
+        # reason not to.
+        box_name = self.box_name
+        scene = self.scene
+
+        ## BEGIN_SUB_TUTORIAL wait_for_scene_update
+        ##
+        ## Ensuring Collision Updates Are Receieved
+        ## ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        ## If the Python node dies before publishing a collision object update message, the message
+        ## could get lost and the box will not appear. To ensure that the updates are
+        ## made, we wait until we see the changes reflected in the
+        ## ``get_known_object_names()`` and ``get_known_object_names()`` lists.
+        ## For the purpose of this tutorial, we call this function after adding,
+        ## removing, attaching or detaching an object in the planning scene. We then wait
+        ## until the updates have been made or ``timeout`` seconds have passed
+        start = rospy.get_time()
+        seconds = rospy.get_time()
+        while (seconds - start < timeout) and not rospy.is_shutdown():
+          # Test if the box is in attached objects
+          attached_objects = scene.get_attached_objects([box_name])
+          is_attached = len(attached_objects.keys()) > 0
+
+          # Test if the box is in the scene.
+          # Note that attaching the box will remove it from known_objects
+          is_known = box_name in scene.get_known_object_names()
+
+          # Test if we are in the expected state
+          if (box_is_attached == is_attached) and (box_is_known == is_known):
+            return True
+
+          # Sleep so that we give other threads time on the processor
+          rospy.sleep(0.1)
+          seconds = rospy.get_time()
+
+        # If we exited the while loop without returning then we timed out
+        return False
+        ## END_SUB_TUTORIAL
+
+    def check_sliding(self):
+        if self.object.pos.get_curr() - self.object.pos.get_previous() > tolerance:
+            self.sliding = true
 
 
 
@@ -315,8 +350,17 @@ class Point(object):
 
 def main():
     baxter = BaxterSim()
-    curr_pos = baxter.get_position('r_arm')
-    baxter.go_to_position('r_arm',curr_pos[0] + 0.2, curr_pos[1], curr_pos[2])
+    baxter.set_planning_params("r_arm")
+    curr_pos = baxter.get_position("r_arm")
+    # resting: [0.9089723296003718, -1.1039755779078562, 0.3209760000039386]
+    # [0.8,-1.0,0.3]
+    print(curr_pos)
+    # baxter.go_to_position("r_hand",curr_pos[0] + 0.1, curr_pos[1] + 0.1, curr_pos[2] - 0.2)
+    baxter.add_box()
+    baxter.attach_box()
+    baxter.go_to_position("r_arm", 0.8, -1.0, 0.3)
+
+    rospy.spin()
 
 if __name__ == '__main__':
     main()
