@@ -75,6 +75,7 @@ class BaxterSim(object):
         self.l_arm.set_start_state(moveit_msgs.msg.RobotState())
 
         self.limbs = {'r_hand':self.r_hand, 'r_arm':self.r_arm, 'l_hand':self.l_hand, 'l_arm':self.l_arm}
+        self.limbs = {'r_arm':self.r_arm, 'l_arm':self.l_arm}
 
         print("eef_link: " + self.r_arm.get_end_effector_link())
         self.eef_link = self.r_arm.get_end_effector_link()
@@ -190,42 +191,24 @@ class BaxterSim(object):
         return self.wait_for_state_update(box_is_attached=True, box_is_known=False, timeout=timeout)
 
     def detach_box(self, timeout=4):
-        self.scene.remove_attached_object(self.eef_link, name=self.box_name)
+        self.scene.remove_attached_object(self.eef_link, name=self.object_name)
         return self.wait_for_state_update(box_is_known=True, box_is_attached=False, timeout=timeout)
 
     def remove_box(self, timeout=4):
-
-        self.scene.remove_world_object(self.box_name)
+        self.scene.remove_world_object(self.object_name)
         return self.wait_for_state_update(box_is_attached=False, box_is_known=False, timeout=timeout)
 
     def wait_for_state_update(self, box_is_known=False, box_is_attached=False, timeout=4):
-        # Copy class variables to local variables to make the web tutorials more clear.
-        # In practice, you should use the class variables directly unless you have a good
-        # reason not to.
-        box_name = self.box_name
-        scene = self.scene
-
-        ## BEGIN_SUB_TUTORIAL wait_for_scene_update
-        ##
-        ## Ensuring Collision Updates Are Receieved
-        ## ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-        ## If the Python node dies before publishing a collision object update message, the message
-        ## could get lost and the box will not appear. To ensure that the updates are
-        ## made, we wait until we see the changes reflected in the
-        ## ``get_known_object_names()`` and ``get_known_object_names()`` lists.
-        ## For the purpose of this tutorial, we call this function after adding,
-        ## removing, attaching or detaching an object in the planning scene. We then wait
-        ## until the updates have been made or ``timeout`` seconds have passed
         start = rospy.get_time()
         seconds = rospy.get_time()
         while (seconds - start < timeout) and not rospy.is_shutdown():
           # Test if the box is in attached objects
-          attached_objects = scene.get_attached_objects([box_name])
+          attached_objects = self.scene.get_attached_objects([self.object_name])
           is_attached = len(attached_objects.keys()) > 0
 
           # Test if the box is in the scene.
           # Note that attaching the box will remove it from known_objects
-          is_known = box_name in scene.get_known_object_names()
+          is_known = self.object_name in self.scene.get_known_object_names()
 
           # Test if we are in the expected state
           if (box_is_attached == is_attached) and (box_is_known == is_known):
@@ -351,24 +334,27 @@ class Point(object):
 
 def main():
 
-    bi_right = baxter_interface.Limb("right")
 
     baxter = BaxterSim()
     baxter.set_planning_params("r_arm")
     curr_pos = baxter.get_position("r_arm")
     # resting: [0.9089723296003718, -1.1039755779078562, 0.3209760000039386]
+    # ...or in baxterland: [x=0.14844835898925912, y=-0.43258268259271665, z=-0.7116723052429483]
     # [0.8,-1.0,0.3]
-    print("moveit curr pos: " = curr_pos)
+    print("moveit curr pos:")
+    print(curr_pos)
 
+    bi_right = baxter_interface.Limb("right")
     curr_pos_bi = bi_right.endpoint_pose()
-    print("baxter curr pos: " = bi_curr_pos)
+    print("baxter curr pos:")
+    print(curr_pos_bi["position"])
 
-    
+
 
     # baxter.go_to_position("r_hand",curr_pos[0] + 0.1, curr_pos[1] + 0.1, curr_pos[2] - 0.2)
-    baxter.add_box()
-    baxter.attach_box()
-    baxter.go_to_position("r_arm", 0.8, -1.0, 0.3)
+    #baxter.add_box()
+    #baxter.attach_box()
+    baxter.go_to_position("r_arm", 0.2, -0.6, -0.5)
 
     rospy.spin()
 
