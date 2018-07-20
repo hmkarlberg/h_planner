@@ -6,6 +6,7 @@ import rospy
 import moveit_commander
 import moveit_msgs.msg
 import geometry_msgs.msg
+import baxter_interface
 
 import numpy as np
 import numpy.linalg as npla
@@ -349,12 +350,21 @@ class Point(object):
 
 
 def main():
+
+    bi_right = baxter_interface.Limb("right")
+
     baxter = BaxterSim()
     baxter.set_planning_params("r_arm")
     curr_pos = baxter.get_position("r_arm")
     # resting: [0.9089723296003718, -1.1039755779078562, 0.3209760000039386]
     # [0.8,-1.0,0.3]
-    print(curr_pos)
+    print("moveit curr pos: " = curr_pos)
+
+    curr_pos_bi = bi_right.endpoint_pose()
+    print("baxter curr pos: " = bi_curr_pos)
+
+    
+
     # baxter.go_to_position("r_hand",curr_pos[0] + 0.1, curr_pos[1] + 0.1, curr_pos[2] - 0.2)
     baxter.add_box()
     baxter.attach_box()
